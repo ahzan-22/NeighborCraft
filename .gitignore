@@ -33,6 +33,18 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Prisma
+# dev.db adalah database lokal SQLite; jangan pernah ikut ter-commit.
+*.db
+*.db-journal
+apps/api/prisma/*.db*
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Superpowers SDD workspace (ledger, brief, laporan review)
+.superpowers/
+
 # Misc
 .DS_Store
 *.pem

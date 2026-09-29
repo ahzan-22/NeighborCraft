@@ -1,14 +1,18 @@
-import { Controller, Post, Get, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, UseGuards, Req } from '@nestjs/common';
 import { ReviewsService } from './reviews.service.js';
 import type { CreateReviewDto } from './reviews.service.js';
+import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
+import type { JwtPayload } from './auth/jwt-auth.guard.js';
 
 @Controller('reviews')
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
   @Post()
-  create(@Body() body: CreateReviewDto) {
-    return this.reviewsService.createReview(body);
+  @UseGuards(JwtAuthGuard)
+  create(@Body() body: CreateReviewDto, @Req() req: { user: JwtPayload }) {
+    // userId selalu dari JWT, abaikan nilai di body.
+    return this.reviewsService.createReview({ ...body, userId: req.user.sub });
   }
 
   @Get('service/:serviceId')

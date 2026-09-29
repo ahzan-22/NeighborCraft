@@ -174,7 +174,12 @@ export class OrdersService {
   async findByUser(userId: string) {
     return this.prisma.order.findMany({
       where: { userId },
-      include: { service: true },
+      // `review` perlu diikutkan agar UI bisa menandai "ulasan sudah dikirim"
+      // tanpa request tambahan per order.
+      include: {
+        service: true,
+        review: { select: { id: true, rating: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -182,7 +187,10 @@ export class OrdersService {
   async findByService(serviceId: string) {
     return this.prisma.order.findMany({
       where: { serviceId },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        review: { select: { id: true, rating: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

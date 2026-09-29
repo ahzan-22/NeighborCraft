@@ -19,11 +19,12 @@ export interface CreateServiceDto {
   address?: string;
   phone: string;
   description?: string;
-  price?: number | string;
+  price?: number | string | null;
   userId: string;
   category?: string;
   priceType?: string;
   isAvailable?: boolean;
+  portfolioUrl?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -41,6 +42,7 @@ export interface AdminUpdateServiceDto {
   category?: string;
   priceType?: string;
   isAvailable?: boolean;
+  portfolioUrl?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -151,6 +153,9 @@ export class ServicesService {
         ...(data.isAvailable !== undefined
           ? { isAvailable: Boolean(data.isAvailable) }
           : {}),
+        ...(data.portfolioUrl !== undefined
+          ? { portfolioUrl: data.portfolioUrl }
+          : {}),
         ...(latitude !== undefined ? { latitude } : {}),
         ...(longitude !== undefined ? { longitude } : {}),
       },
@@ -210,6 +215,9 @@ export class ServicesService {
         ...(priceType !== undefined ? { priceType } : {}),
         ...(data.isAvailable !== undefined
           ? { isAvailable: Boolean(data.isAvailable) }
+          : {}),
+        ...(data.portfolioUrl !== undefined
+          ? { portfolioUrl: data.portfolioUrl }
           : {}),
         ...(latitude !== undefined ? { latitude } : {}),
         ...(longitude !== undefined ? { longitude } : {}),

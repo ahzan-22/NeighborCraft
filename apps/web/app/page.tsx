@@ -2,9 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { getSessionUser, logout, saveSession } from '../lib/auth';
+import type { SessionUser } from '../lib/auth';
+import { apiFetch, getServices, getUserOrders, createService, createOrder as apiCreateOrder, updateOrderStatusFull, deleteService, createReview, createContact } from '../lib/api';
+import type { Service as ApiService, Order as ApiOrder, Review as ApiReview } from '../lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const STORAGE_KEY = 'neighborcraft_user';
 
 /* ---------- Types ---------- */
 interface Review {
@@ -104,6 +107,7 @@ export default function Home() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [canReview, setCanReview] = useState(false);
+  const [reviewOrderId, setReviewOrderId] = useState<string | null>(null);
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [showOrders, setShowOrders] = useState(false);
   const [showRegisterService, setShowRegisterService] = useState(false);
@@ -128,42 +132,28 @@ export default function Home() {
 
   /* ----- restore session ----- */
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as AuthUser;
-        if (parsed && parsed.id && parsed.email) setUser(parsed);
-      }
-    } catch {
-      /* abaikan */
-    }
+    let alive = true;
+    void (async () => {
+      const sess: SessionUser | null = getSessionUser();
+      await Promise.resolve();
+      if (!alive || !sess) return;
+      setUser(sess);
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
-
-  const persistUser = (u: AuthUser | null) => {
-    setUser(u);
-    try {
-      if (u) localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
-      else localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* abaikan */
-    }
-  };
 
   /* ----- services: selalu dari database nyata ----- */
   const fetchServices = async () => {
     try {
-      const r = await fetch(`${API}/services`, { cache: 'no-store' });
-      if (!r.ok) {
-        setServices([]);
-        return;
-      }
-      const data = await r.json();
+      const data = await getServices();
       if (!Array.isArray(data)) {
         setServices([]);
         return;
       }
       setServices(
-        data.map((d: any) => ({
+        data.map((d: ApiService) => ({
           id: String(d.id),
           name: d.name,
           skill: d.skill,
@@ -175,7 +165,7 @@ export default function Home() {
           isVerified: !!d.isVerified,
           avgRating: d.avgRating ?? 0,
           reviewCount: d.reviewCount ?? (d.reviews?.length ?? 0),
-          reviews: (d.reviews ?? []).map((rv: any) => ({
+          reviews: (d.reviews ?? []).map((rv: ApiReview) => ({
             id: String(rv.id),
             rating: rv.rating,
             comment: rv.comment,
@@ -189,19 +179,16 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchServices();
+    const timer = window.setTimeout(() => void fetchServices(), 0);
+    return () => window.clearTimeout(timer);
+     
   }, []);
 
   /* ----- orders milik user: selalu dari API ----- */
   const fetchUserOrders = async (userId: string) => {
     try {
-      const r = await fetch(`${API}/orders/user/${userId}`, { cache: 'no-store' });
-      if (!r.ok) {
-        setOrders([]);
-        return [];
-      }
-      const data = (await r.json()) as any[];
-      const mapped: OrderItem[] = data.map((o: any) => ({
+      const data = await getUserOrders(userId);
+      const mapped: OrderItem[] = data.map((o: ApiOrder) => ({
         id: String(o.id),
         status: o.status,
         serviceId: String(o.serviceId),
@@ -221,26 +208,37 @@ export default function Home() {
 
   useEffect(() => {
     if (!user) {
-      setOrders([]);
-      return;
+      const timer = window.setTimeout(() => setOrders([]), 0);
+      return () => window.clearTimeout(timer);
     }
-    fetchUserOrders(user.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const timer = window.setTimeout(() => void fetchUserOrders(user.id), 0);
+    return () => window.clearTimeout(timer);
+     
   }, [user]);
 
-  /* ----- canReview: hanya jika ada order COMPLETED nyata ----- */
+  /* ----- canReview + orderId untuk form ulasan ----- */
   useEffect(() => {
+    let alive = true;
     const checkCanReview = async () => {
       if (!detail || !user) {
         setCanReview(false);
+        setReviewOrderId(null);
         return;
       }
       const list = await fetchUserOrders(user.id);
-      const completedOrder = list.find((o) => o.serviceId === detail.id && o.status === 'COMPLETED');
+      const completedOrder = list.find(
+        (o) => o.serviceId === detail.id && o.status === 'COMPLETED',
+      );
+      if (!alive) return;
       setCanReview(!!completedOrder);
+      setReviewOrderId(completedOrder ? completedOrder.id : null);
     };
-    checkCanReview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const timer = window.setTimeout(() => void checkCanReview(), 0);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+     
   }, [detail, user]);
 
   const filtered = useMemo(() => {
@@ -275,23 +273,25 @@ export default function Home() {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.message ?? 'Gagal autentikasi');
-      persistUser(data.user as AuthUser);
+      saveSession(data.user as SessionUser, data.accessToken as string);
+      setUser(data.user as AuthUser);
       setShowAuth(false);
       setAuthForm({ name: '', email: '', password: '' });
       showToast(data.message ?? 'Berhasil masuk', 'success');
-    } catch (err: any) {
-      const msg = err?.message ?? 'Gagal autentikasi';
+      window.location.href = (data.user as AuthUser).role === 'ADMIN' ? '/admin' : '/services';
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal autentikasi';
       setAuthErr(msg);
       showToast(msg, 'error');
     }
   };
 
   const handleLogout = () => {
-    persistUser(null);
     setDetail(null);
     setShowOrders(false);
     setOrders([]);
     setCanReview(false);
+    logout();
   };
 
   /* ----- tambah jasa nyata: POST /services ----- */
@@ -314,19 +314,13 @@ export default function Home() {
         price: formRegister.price === '' ? undefined : Number(formRegister.price),
         userId: user.id,
       };
-      const r = await fetch(`${API}/services`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.message ?? 'Gagal mendaftar jasa');
+      await createService(payload);
       setShowRegisterService(false);
       setFormRegister({ name: '', skill: '', location: '', address: '', phone: '', description: '', price: '' });
       await fetchServices();
       showToast('Jasa berhasil ditawarkan dan tersimpan di katalog', 'success');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal mendaftar jasa', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mendaftar jasa', 'error');
     } finally {
       setSavingService(false);
     }
@@ -339,20 +333,31 @@ export default function Home() {
       setShowAuth(true);
       return;
     }
+    const deliveryAddress = window.prompt('Alamat lengkap pengerjaan:');
+    if (deliveryAddress === null) return;
+    if (deliveryAddress.trim() === '') {
+      showToast('Alamat wajib diisi', 'error');
+      return;
+    }
+    const customerPhone = window.prompt('No. WhatsApp pemesan:');
+    if (customerPhone === null) return;
+    if (customerPhone.trim() === '') {
+      showToast('Nomor WhatsApp wajib diisi', 'error');
+      return;
+    }
     setOrderingId(serviceId);
     try {
-      const r = await fetch(`${API}/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serviceId, userId: user.id }),
+      await apiCreateOrder({
+        serviceId,
+        userId: user.id,
+        deliveryAddress: deliveryAddress.trim(),
+        customerPhone: customerPhone.trim(),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.message ?? 'Gagal membuat pesanan');
       await fetchUserOrders(user.id);
       setShowOrders(true);
       showToast('Pesanan berhasil dibuat', 'success');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal membuat pesanan', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuat pesanan', 'error');
     } finally {
       setOrderingId(null);
     }
@@ -361,13 +366,7 @@ export default function Home() {
   /* ----- status order nyata: PATCH /orders/:id/status ----- */
   const updateOrderStatus = async (id: string, status: string) => {
     try {
-      const r = await fetch(`${API}/orders/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.message ?? 'Gagal mengubah status');
+      await updateOrderStatusFull(id, status);
       setOrders((p) => p.map((o) => (o.id === id ? { ...o, status } : o)));
       showToast(`Pesanan ${status === 'COMPLETED' ? 'diselesaikan' : 'dibatalkan'}`, 'success');
       if (detail && user) {
@@ -375,55 +374,53 @@ export default function Home() {
         const completedOrder = list.find((o) => o.serviceId === detail.id && o.status === 'COMPLETED');
         setCanReview(!!completedOrder);
       }
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal mengubah status', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah status', 'error');
     }
   };
 
   /* ----- admin ----- */
   const handleVerify = async (id: string) => {
     try {
-      const r = await fetch(`${API}/services/${id}/verify`, { method: 'PATCH' });
-      if (!r.ok) throw new Error('Gagal verifikasi');
+      await apiFetch(`/services/${id}/verify`, { method: 'PATCH' });
       await fetchServices();
       if (detail && detail.id === id) setDetail({ ...detail, isVerified: true });
       showToast('Jasa diverifikasi', 'success');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal verifikasi', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal verifikasi', 'error');
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus jasa ini?')) return;
     try {
-      const r = await fetch(`${API}/services/${id}`, { method: 'DELETE' });
-      if (!r.ok) throw new Error('Gagal menghapus');
+      await deleteService(id);
       setDetail(null);
       await fetchServices();
       showToast('Jasa dihapus', 'success');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal menghapus', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error');
     }
   };
 
   /* ----- ulasan nyata: POST /reviews (butuh COMPLETED) ----- */
   const handleReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!detail || !user || !canReview) return;
+    if (!detail || !user || !reviewOrderId) return;
     try {
-      const r = await fetch(`${API}/reviews`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rating, comment, serviceId: detail.id, userId: user.id }),
+      await createReview({
+        rating,
+        comment,
+        serviceId: detail.id,
+        userId: user.id,
+        orderId: reviewOrderId,
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.message ?? 'Gagal mengirim ulasan');
       setComment('');
       await fetchServices();
       // Refresh modal detail supaya ulasan baru langsung muncul,
       // cegah user klik kirim 2x karena mengira gagal.
       try {
-        const rs = await fetch(`${API}/services/${detail.id}`, { cache: 'no-store' });
+        const rs = await apiFetch(`/services/${detail.id}`, { cache: 'no-store' });
         if (rs.ok) {
           const fresh = await rs.json();
           setDetail({
@@ -438,7 +435,7 @@ export default function Home() {
             isVerified: !!fresh.isVerified,
             avgRating: fresh.avgRating ?? 0,
             reviewCount: fresh.reviewCount ?? (fresh.reviews?.length ?? 0),
-            reviews: (fresh.reviews ?? []).map((rv: any) => ({
+            reviews: (fresh.reviews ?? []).map((rv: ApiReview) => ({
               id: String(rv.id),
               rating: rv.rating,
               comment: rv.comment,
@@ -450,8 +447,8 @@ export default function Home() {
         /* abaikan, daftar utama sudah ter-refresh */
       }
       showToast('Ulasan terkirim, terima kasih!', 'success');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal mengirim ulasan', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengirim ulasan', 'error');
     }
   };
 
@@ -470,17 +467,11 @@ export default function Home() {
     }
     setSendingReport(true);
     try {
-      const r = await fetch(`${API}/contacts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reportForm),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.message ?? 'Gagal mengirim laporan');
+      await createContact(reportForm);
       setReportForm({ name: '', email: '', subject: '', message: '' });
       showToast('Laporan warga terkirim, terima kasih!', 'success');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal mengirim laporan', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengirim laporan', 'error');
     } finally {
       setSendingReport(false);
     }

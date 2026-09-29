@@ -31,10 +31,11 @@ model Service {
   location    String
   address     String?
   phone       String
-  description String   @default("")
-  price       Int?
-  latitude    Float?
-  longitude   Float?
+  description  String   @default("")
+  price        Int?
+  portfolioUrl String?
+  latitude     Float?
+  longitude    Float?
   isAvailable Boolean  @default(true)
   isVerified  Boolean  @default(false)
   isDeleted   Boolean  @default(false)

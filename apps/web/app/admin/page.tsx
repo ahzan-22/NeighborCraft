@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const STORAGE_KEY = 'neighborcraft_user';
+import { apiFetch } from '../../lib/api';
+import { getSessionUser, type SessionUser } from '../../lib/auth';
 
 interface AuthUser {
   id: string;
@@ -77,7 +77,10 @@ export default function AdminPage() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [contacts, setContacts] = useState<AdminContact[]>([]);
   const [toast, setToast] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [toastKind, setToastKind] = useState<'success' | 'error'>('success');
+  // `checked` sudah menahan layar "Memuat..." sampai sesi selesai dibaca,
+  // jadi `loading` hanya perlu true selama fetchAll berjalan.
+  const [loading, setLoading] = useState(false);
 
   // Edit Service Modal
   const [editService, setEditService] = useState<AdminService | null>(null);
@@ -101,32 +104,33 @@ export default function AdminPage() {
   const [savingUser, setSavingUser] = useState(false);
 
   const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
+    setToastKind(kind);
     setToast(msg);
     window.setTimeout(() => setToast(null), 4000);
   };
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as AuthUser;
-        if (parsed && parsed.id && parsed.email) setUser(parsed);
-      }
-    } catch {
-      /* abaikan */
-    } finally {
+    let alive = true;
+    void (async () => {
+      const session: SessionUser | null = getSessionUser();
+      await Promise.resolve();
+      if (!alive) return;
+      setUser(session);
       setChecked(true);
-    }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
       const [s, u, o, c] = await Promise.all([
-        fetch(`${API}/services?all=true`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
-        fetch(`${API}/users`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
-        fetch(`${API}/orders`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
-        fetch(`${API}/contacts`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
+        apiFetch('/services?all=true', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
+        apiFetch('/users', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
+        apiFetch('/orders', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
+        apiFetch('/contacts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])),
       ]);
       setServices(Array.isArray(s) ? s : []);
       setUsers(Array.isArray(u) ? u : []);
@@ -137,24 +141,18 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (!checked) return;
-    if (user?.role === 'ADMIN') {
-      fetchAll();
-    } else {
-      // Bukan admin: hentikan loading supaya tampil "Akses Ditolak",
-      // bukan stuck di "Memuat Dashboard Admin..." selamanya.
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checked, user]);
+    if (!checked || user?.role !== 'ADMIN') return;
+    const timer = window.setTimeout(() => void fetchAll(), 0);
+    return () => window.clearTimeout(timer);
+  }, [checked, user, fetchAll]);
 
   // ===== SERVICE ACTIONS =====
   const handleVerify = async (id: string) => {
     try {
-      const r = await fetch(`${API}/services/${id}/verify`, { method: 'PATCH' });
+      const r = await apiFetch(`/services/${id}/verify`, { method: 'PATCH' });
       if (!r.ok) throw new Error('Gagal verifikasi');
       setServices((p) => p.map((svc) => (svc.id === id ? { ...svc, isVerified: true } : svc)));
       showToast('Jasa diverifikasi');
@@ -166,7 +164,7 @@ export default function AdminPage() {
   const handleDeleteService = async (id: string) => {
     if (!confirm('Hapus jasa ini? Jika jasa memiliki riwayat pesanan/ulasan, akan dilakukan soft delete (dinonaktifkan).')) return;
     try {
-      const r = await fetch(`${API}/services/${id}`, { method: 'DELETE' });
+      const r = await apiFetch(`/services/${id}`, { method: 'DELETE' });
       if (!r.ok) throw new Error('Gagal menghapus');
       const data = await r.json();
       if (data.softDeleted) {
@@ -208,7 +206,7 @@ export default function AdminPage() {
         payload.price = Number(payload.price);
       }
 
-      const r = await fetch(`${API}/services/${editService.id}/admin`, {
+      const r = await apiFetch(`/services/${editService.id}/admin`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -222,8 +220,8 @@ export default function AdminPage() {
       setEditService(null);
       setEditServiceForm({});
       showToast('Jasa berhasil diperbarui');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal memperbarui jasa', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memperbarui jasa', 'error');
     } finally {
       setSavingService(false);
     }
@@ -249,7 +247,7 @@ export default function AdminPage() {
     if (!editUser) return;
     setSavingUser(true);
     try {
-      const r = await fetch(`${API}/users/${editUser.id}`, {
+      const r = await apiFetch(`/users/${editUser.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editUserForm),
@@ -263,8 +261,8 @@ export default function AdminPage() {
       setEditUser(null);
       setEditUserForm({});
       showToast('Data warga berhasil diperbarui');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal memperbarui warga', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memperbarui warga', 'error');
     } finally {
       setSavingUser(false);
     }
@@ -273,7 +271,7 @@ export default function AdminPage() {
   const handleDeleteUser = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus permanen warga ini dari database?')) return;
     try {
-      const r = await fetch(`${API}/users/${id}`, { method: 'DELETE' });
+      const r = await apiFetch(`/users/${id}`, { method: 'DELETE' });
       if (!r.ok) {
         const err = await r.json().catch(() => ({ message: 'Gagal menghapus akun warga' }));
         throw new Error(err.message ?? 'Gagal menghapus akun warga');
@@ -282,15 +280,15 @@ export default function AdminPage() {
       // Refresh real-time: ambil ulang daftar warga dari server.
       await fetchAll();
       showToast('Akun warga dihapus permanen');
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal menghapus warga', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus warga', 'error');
     }
   };
 
   const handleToggleBan = async (id: string, currentlyBanned: boolean) => {
     const nextBanned = !currentlyBanned;
     try {
-      const r = await fetch(`${API}/users/${id}`, {
+      const r = await apiFetch(`/users/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isBanned: nextBanned }),
@@ -304,8 +302,8 @@ export default function AdminPage() {
       const bannedFromServer: boolean = data?.user?.isBanned ?? nextBanned;
       setUsers((p) => p.map((usr) => (usr.id === id ? { ...usr, isBanned: bannedFromServer } : usr)));
       showToast(`Akun ${bannedFromServer ? 'diblokir' : 'dibuka blokir'}`);
-    } catch (err: any) {
-      showToast(err?.message ?? 'Gagal mengubah status blokir', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah status blokir', 'error');
     }
   };
 
@@ -317,7 +315,7 @@ export default function AdminPage() {
   // ===== CONTACT ACTIONS =====
   const handleContactStatus = async (id: string, status: string) => {
     try {
-      const r = await fetch(`${API}/contacts/${id}`, {
+      const r = await apiFetch(`/contacts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
@@ -333,7 +331,7 @@ export default function AdminPage() {
   const handleDeleteContact = async (id: string) => {
     if (!confirm('Hapus pesan ini?')) return;
     try {
-      const r = await fetch(`${API}/contacts/${id}`, { method: 'DELETE' });
+      const r = await apiFetch(`/contacts/${id}`, { method: 'DELETE' });
       if (!r.ok) throw new Error('Gagal menghapus');
       setContacts((p) => p.filter((c) => c.id !== id));
       showToast('Pesan dihapus');
@@ -406,7 +404,7 @@ export default function AdminPage() {
 
       <main className="mx-auto max-w-6xl px-4 pb-16">
         {toast && (
-          <p className={`${neoCardSm} mt-4 ${toast.includes('Gagal') ? 'bg-[#FF007A] text-white' : 'bg-[#00E676]'} px-4 py-2 text-xs font-black uppercase`}>{toast}</p>
+          <p className={`${neoCardSm} mt-4 ${toastKind === 'error' ? 'bg-[#FF007A] text-white' : 'bg-[#00E676]'} px-4 py-2 text-xs font-black uppercase`}>{toast}</p>
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -673,7 +671,7 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="text-xs font-black uppercase">Harga (Rp, kosongkan untuk 'hubungi penyedia')</label>
+                  <label className="text-xs font-black uppercase">Harga (Rp, kosongkan untuk &apos;hubungi penyedia&apos;)</label>
                   <input
                     type="number"
                     min={0}

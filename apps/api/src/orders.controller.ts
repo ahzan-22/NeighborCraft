@@ -1,20 +1,34 @@
-import { Controller, Post, Body, Param, Patch, Get, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Param,
+  Patch,
+  Get,
+  UseGuards,
+  Req,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrdersService } from './orders.service.js';
 import type { CreateOrderInput } from './orders.service.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import type { JwtPayload } from './auth/jwt-auth.guard.js';
-
-export interface CreateOrderDto {
-  serviceId: string;
-  userId: string;
-}
+import { PrismaService } from './prisma.service.js';
 
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get()
-  findAll() {
+  @UseGuards(JwtAuthGuard)
+  findAll(@Req() req: { user: JwtPayload }) {
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Hanya admin yang dapat melihat semua pesanan');
+    }
     return this.ordersService.findAll();
   }
 
@@ -25,8 +39,10 @@ export class OrdersController {
   }
 
   @Post()
-  create(@Body() body: CreateOrderInput) {
-    return this.ordersService.createOrder(body);
+  @UseGuards(JwtAuthGuard)
+  create(@Body() body: CreateOrderInput, @Req() req: { user: JwtPayload }) {
+    // userId selalu dari JWT, abaikan nilai di body.
+    return this.ordersService.createOrder({ ...body, userId: req.user.sub });
   }
 
   @Patch(':id/status')
@@ -40,12 +56,29 @@ export class OrdersController {
   }
 
   @Get('user/:userId')
-  byUser(@Param('userId') userId: string) {
+  @UseGuards(JwtAuthGuard)
+  async byUser(@Param('userId') userId: string, @Req() req: { user: JwtPayload }) {
+    if (req.user.role !== 'ADMIN' && req.user.sub !== userId) {
+      throw new ForbiddenException('Hanya pemilik pesanan atau admin yang dapat melihat');
+    }
     return this.ordersService.findByUser(userId);
   }
 
   @Get('service/:serviceId')
-  byService(@Param('serviceId') serviceId: string) {
+  @UseGuards(JwtAuthGuard)
+  async byService(@Param('serviceId') serviceId: string, @Req() req: { user: JwtPayload }) {
+    if (req.user.role !== 'ADMIN') {
+      const service = await this.prisma.service.findUnique({
+        where: { id: serviceId },
+        select: { userId: true },
+      });
+      if (!service) {
+        throw new NotFoundException(`Service dengan id ${serviceId} tidak ditemukan`);
+      }
+      if (service.userId !== req.user.sub) {
+        throw new ForbiddenException('Hanya pemilik jasa atau admin yang dapat melihat');
+      }
+    }
     return this.ordersService.findByService(serviceId);
   }
 }

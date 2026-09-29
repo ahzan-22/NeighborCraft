@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ServicesService } from './services.service.js';
 import type {
@@ -57,7 +58,11 @@ export class ServicesController {
   }
 
   @Patch(':id/verify')
-  verify(@Param('id') id: string) {
+  @UseGuards(JwtAuthGuard)
+  verify(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Hanya admin yang dapat memverifikasi jasa');
+    }
     return this.servicesService.verifyService(id);
   }
 
