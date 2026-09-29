@@ -1,0 +1,15 @@
+{
+  "name": "@neighborcraft/db",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prisma:validate": "prisma validate",
+    "prisma:push": "prisma db push"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0"
+  },
+  "devDependencies": {
+    "prisma": "5.22.0"
+  }
+}

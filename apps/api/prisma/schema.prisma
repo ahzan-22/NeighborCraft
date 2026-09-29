@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  password      String
+  role          String         @default("WARGA")
+  isBanned      Boolean        @default(false)
+  services      Service[]      @relation("UserServices")
+  reviews       Review[]       @relation("UserReviews")
+  orders        Order[]        @relation("OrderUsers")
+  notifications Notification[] @relation("UserNotifications")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  skill       String
+  category    String   @default("")
+  priceType   String   @default("FIXED")
+  location    String
+  address     String?
+  phone       String
+  description String   @default("")
+  price       Int?
+  latitude    Float?
+  longitude   Float?
+  isAvailable Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  user        User     @relation("UserServices", fields: [userId], references: [id], onDelete: Cascade)
+  reviews     Review[] @relation("ServiceReviews")
+  orders      Order[]  @relation("OrderServices")
+  @@index([userId])
+}
+
+model Order {
+  id              String    @id @default(uuid())
+  status          String    @default("PENDING")
+  deliveryAddress String    @default("")
+  latitude        Float?
+  longitude       Float?
+  notes           String?
+  customerPhone   String    @default("")
+  cancelReason    String?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  serviceId       String
+  service         Service   @relation("OrderServices", fields: [serviceId], references: [id])
+  userId          String
+  user            User      @relation("OrderUsers", fields: [userId], references: [id], onDelete: Cascade)
+  review          Review?   @relation("OrderReviews")
+  @@index([serviceId])
+  @@index([userId])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  comment   String   @default("")
+  createdAt DateTime @default(now())
+  serviceId String
+  service   Service  @relation("ServiceReviews", fields: [serviceId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
+  orderId   String   @unique
+  order     Order    @relation("OrderReviews", fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([serviceId])
+  @@index([userId])
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @default("")
+  subject   String   @default("")
+  message   String
+  status    String   @default("BARU")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  type      String   @default("ORDER")
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
