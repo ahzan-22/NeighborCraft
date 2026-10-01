@@ -423,7 +423,7 @@ export default function ProviderDashboardPage() {
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className={`text-[11px] font-black uppercase px-2 py-1 border-2 border-black ${s.isAvailable ? 'bg-[#00E676]' : 'bg-[#FF007A] text-white'}`}>
-                      {s.isAvailable ? '✓ Menerima Pesanan' : '⏸ Tutup Sementara'}
+                      {s.isAvailable ? '✓ Menerima Pesanan' : '⏸ Sedang Tutup'}
                     </span>
                     {s.isVerified && <span className="text-[11px] font-black uppercase px-2 py-1 border-2 border-black bg-[#FFE600]">Terverifikasi</span>}
                     {s.isDeleted && <span className="text-[11px] font-black uppercase px-2 py-1 border-2 border-black bg-[#FF007A] text-white">Nonaktif</span>}

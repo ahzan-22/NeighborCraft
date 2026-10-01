@@ -26,6 +26,8 @@ interface Service {
   description: string;
   price?: number | null;
   isVerified: boolean;
+  isAvailable: boolean;
+  isDeleted: boolean;
   avgRating: number;
   reviewCount: number;
   reviews: Review[];
@@ -91,6 +93,10 @@ function formatDate(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function isServiceOpen(s: Service): boolean {
+  return s.isAvailable && !s.isDeleted;
 }
 
 export default function Home() {
@@ -163,6 +169,8 @@ export default function Home() {
           description: d.description ?? '-',
           price: d.price ?? null,
           isVerified: !!d.isVerified,
+          isAvailable: d.isAvailable !== false,
+          isDeleted: !!d.isDeleted,
           avgRating: d.avgRating ?? 0,
           reviewCount: d.reviewCount ?? (d.reviews?.length ?? 0),
           reviews: (d.reviews ?? []).map((rv: ApiReview) => ({
@@ -333,6 +341,12 @@ export default function Home() {
       setShowAuth(true);
       return;
     }
+    // Backend juga menolak, tapi lebih baik jangan paksa pengguna isi form dulu.
+    const target = services.find((s) => s.id === serviceId);
+    if (!target || !isServiceOpen(target)) {
+      showToast('Jasa ini sedang tutup sementara, belum bisa dipesan', 'error');
+      return;
+    }
     const deliveryAddress = window.prompt('Alamat lengkap pengerjaan:');
     if (deliveryAddress === null) return;
     if (deliveryAddress.trim() === '') {
@@ -433,6 +447,8 @@ export default function Home() {
             description: fresh.description ?? '-',
             price: fresh.price ?? null,
             isVerified: !!fresh.isVerified,
+            isAvailable: fresh.isAvailable !== false,
+            isDeleted: !!fresh.isDeleted,
             avgRating: fresh.avgRating ?? 0,
             reviewCount: fresh.reviewCount ?? (fresh.reviews?.length ?? 0),
             reviews: (fresh.reviews ?? []).map((rv: ApiReview) => ({
@@ -605,20 +621,25 @@ export default function Home() {
 
             <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
               {filtered.map((s, i) => (
-                <article key={s.id} className={`${['bg-[#FFE600]', 'bg-white', 'bg-[#00E676]/30', 'bg-[#FF007A]/15'][i % 4]} p-5 flex flex-col ${neoCardSm}`}>
+                <article key={s.id} className={`${['bg-[#FFE600]', 'bg-white', 'bg-[#00E676]/30', 'bg-[#FF007A]/15'][i % 4]} p-5 flex flex-col ${neoCardSm} ${isServiceOpen(s) ? '' : 'opacity-70'}`}>
                   <div className="flex justify-between gap-2">
                     <span className={`text-[11px] font-black uppercase px-2 py-1 border-[3px] border-black ${s.isVerified ? 'bg-[#00E676]' : 'bg-[#FFE600]'}`}>
                       {s.isVerified ? '✓ Terverifikasi RT/RW' : 'Belum Terverifikasi'}
                     </span>
                     <Stars value={s.avgRating} />
                   </div>
+                  {!isServiceOpen(s) && (
+                    <p className="mt-2 self-start text-[11px] font-black uppercase px-2 py-1 border-[3px] border-black bg-[#FF007A] text-white">
+                      ⏸ Tutup Sementara
+                    </p>
+                  )}
                   <h3 className="mt-3 text-lg font-black uppercase leading-tight">{s.skill}</h3>
                   <p className="text-sm font-bold">👤 {s.name} • 📍 {s.location}</p>
                   <p className="text-xs font-black mt-1">💰 {formatPrice(s.price)}</p>
                   <p className="text-xs font-bold opacity-60">💬 {s.reviewCount} ulasan</p>
                   <button onClick={() => setDetail(s)} className={`${neoBtn} mt-2 bg-black text-white py-2.5 text-xs`}>Lihat Detail & Kontak →</button>
-                  <button onClick={() => createOrder(s.id)} disabled={orderingId === s.id} className={`${neoBtn} mt-2 bg-[#0052FF] text-white py-2.5 text-xs disabled:opacity-50`}>
-                    {orderingId === s.id ? 'Memesan...' : 'Pesan Jasa Ini →'}
+                  <button onClick={() => createOrder(s.id)} disabled={orderingId === s.id || !isServiceOpen(s)} title={isServiceOpen(s) ? undefined : 'Jasa sedang tutup sementara, tidak bisa dipesan'} className={`${neoBtn} mt-2 bg-[#0052FF] text-white py-2.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-black/40`}>
+                    {orderingId === s.id ? 'Memesan...' : isServiceOpen(s) ? 'Pesan Jasa Ini →' : 'Tutup Sementara'}
                   </button>
                 </article>
               ))}

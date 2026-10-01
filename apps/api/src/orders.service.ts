@@ -55,6 +55,9 @@ export class OrdersService {
     if (service.isDeleted) {
       throw new BadRequestException('Service sudah dihapus');
     }
+    if (!service.isAvailable) {
+      throw new BadRequestException('Jasa sedang tutup sementara, belum bisa dipesan');
+    }
 
     const order = await this.prisma.order.create({
       data: {

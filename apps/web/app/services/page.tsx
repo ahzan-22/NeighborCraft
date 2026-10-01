@@ -177,7 +177,7 @@ export default function ServicesPage() {
               )}
               <div className="flex flex-wrap gap-1 mb-1">
                 <span className={`text-[10px] font-black uppercase px-2 py-0.5 border-2 border-black ${isOpen(s) ? 'bg-[#00E676]' : 'bg-[#FF007A] text-white'}`}>
-                  {isOpen(s) ? '● Buka' : '○ Tutup'}
+                  {isOpen(s) ? '● Buka' : '⏸ Tutup Sementara'}
                 </span>
                 {s.isVerified && <span className="text-[10px] font-black uppercase px-2 py-0.5 border-2 border-black bg-[#FFE600]">Terverifikasi</span>}
                 {s.category && <span className="text-[10px] font-black uppercase px-2 py-0.5 border-2 border-black bg-white">{s.category}</span>}
@@ -193,9 +193,24 @@ export default function ServicesPage() {
               </p>
               <p className="text-xs font-bold opacity-70 line-clamp-2 mt-1">{s.description}</p>
               <div className="mt-3 flex gap-2 mt-auto">
-                <Link href={`/services/${s.id}`} className={`${neoBtn} bg-[#0052FF] text-white px-3 py-2 text-xs`}>
-                  Detail & Pesan
-                </Link>
+                {isOpen(s) ? (
+                  <Link href={`/services/${s.id}`} className={`${neoBtn} bg-[#0052FF] text-white px-3 py-2 text-xs`}>
+                    Detail & Pesan
+                  </Link>
+                ) : (
+                  <>
+                    <span
+                      aria-disabled="true"
+                      title="Jasa sedang tutup sementara, tidak bisa dipesan"
+                      className={`${neoBtn} bg-[#FF007A]/30 text-black/50 px-3 py-2 text-xs cursor-not-allowed select-none`}
+                    >
+                      Tutup Sementara
+                    </span>
+                    <Link href={`/services/${s.id}`} className={`${neoBtn} bg-white px-3 py-2 text-xs`}>
+                      Lihat Detail
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
           ))}
